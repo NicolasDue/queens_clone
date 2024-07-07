@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Star Battle</title>
+    <style>
+        body { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        table { border-collapse: collapse; margin-bottom: 20px; }
+        td { width: 30px; height: 30px; border: 1px solid #000; text-align: center; }
+    </style>
+</head>
+<body>
+    <table>
+        {% for row_idx in range(grid|length) %}
+            <tr>
+                {% for col_idx in range(grid[row_idx]|length) %}
+                    <td class="cell-{{ grid[row_idx][col_idx].state }}"
+                        style="background-color: {{ region_colors[regions[row_idx][col_idx]] }}"
+                        onclick="updateCell({{ row_idx }}, {{ col_idx }}, false)"
+                        oncontextmenu="updateCell({{ row_idx }}, {{ col_idx }}, true)"
+                        >
+                        {% if grid[row_idx][col_idx].state == 1 %} ✖ {% elif grid[row_idx][col_idx].state == 2 %} ⭐ {% endif %}
+                    </td>
+                {% endfor %}
+            </tr>
+        {% endfor %}
+    </table>
+    <button onclick="resetGrid()">Reset</button>
+    <p>Elapsed Time: <span id="timer">{{ elapsed_time }}</span> seconds</p>
+
+    <input type="number" id="gridSize" placeholder="Grid Size (N)">
+    <button onclick="loadGame()">Load game from clipboard</button>
+
+    <script>
+        function updateCell(row, col, isReverse = false) {
+            fetch('/update_cell', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ row: row, col: col, is_reverse: isReverse })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    updateGrid(data.grid);
+                }
+            });
+        }
+    
+        function updateGrid(grid) {
+            const table = document.querySelector('table');
+            for (let rowIdx = 0; rowIdx < grid.length; rowIdx++) {
+                for (let colIdx = 0; colIdx < grid[rowIdx].length; colIdx++) {
+                    const cell = table.rows[rowIdx].cells[colIdx];
+                    cell.className = `cell-${grid[rowIdx][colIdx].state}`;
+                    cell.innerHTML = grid[rowIdx][colIdx].state === 1 ? '✖' : (grid[rowIdx][colIdx].state === 2 ? '⭐' : '');
+                }
+            }
+        }
+    
+        function resetGrid() {
+            fetch('/reset_grid', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                }
+            });
+        }
+    
+        function loadGame() {
+            const n = document.getElementById('gridSize').value;
+            navigator.clipboard.read().then(items => {
+                for (let item of items) {
+                    if (item.types.includes('image/png')) {
+                        item.getType('image/png').then(blob => {
+                            const formData = new FormData();
+                            formData.append('image', blob);
+                            formData.append('n', n);
+                            fetch('/load_game', {
+                                method: 'POST',
+                                body: formData
+                            })
+                            .then(response => response.json())
+                            .then(data => {
+                                if (data.success) {
+                                    updateTable(data.regions, data.region_colors, n);
+                                }
+                            });
+                        });
+                    }
+                }
+            });
+        }
+    
+        function updateTable(regions, regionColors, n) {
+            const table = document.querySelector('table');
+            table.innerHTML = '';  // Clear the existing table
+            for (let rowIdx = 0; rowIdx < n; rowIdx++) {
+                const row = table.insertRow();
+                for (let colIdx = 0; colIdx < n; colIdx++) {
+                    const cell = row.insertCell();
+                    cell.className = 'cell-0';
+                    cell.style.backgroundColor = regionColors[regions[rowIdx][colIdx]];
+                    cell.onclick = (e) => {
+                        e.preventDefault();
+                        updateCell(rowIdx, colIdx, e.button === 2);
+                    };
+                    cell.oncontextmenu = (e) => {
+                        e.preventDefault();
+                        updateCell(rowIdx, colIdx, true);
+                    };
+                }
+            }
+        }
+    
+        function updateTimer() {
+            const timerElement = document.getElementById('timer');
+            let elapsedTime = parseInt(timerElement.textContent);
+            setInterval(() => {
+                elapsedTime++;
+                timerElement.textContent = elapsedTime;
+            }, 1000);
+        }
+    
+        updateTimer();
+        document.addEventListener('contextmenu', event => event.preventDefault());
+    </script>     
+</body>
+</html>
