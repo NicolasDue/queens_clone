@@ -4,6 +4,7 @@ from PIL import Image
 from io import BytesIO
 from image_parser import read_grid_from_image
 from loguru import logger
+import distinctipy
 
 app = Flask(__name__)
 
@@ -24,6 +25,51 @@ regions = [
     ['I', 'I', 'I', 'B', 'B', 'B', 'B', 'B', 'B']
 ]
 
+
+def initialize_grid(grid_size):
+    return [[{"state": 0} for _ in range(grid_size)] for _ in range(grid_size)]
+
+def validate_grid(grid, regions):
+    n = len(grid)
+    stars_per_row = [0] * n
+    stars_per_col = [0] * n
+    stars_per_region = {}
+
+    for row in range(n):
+        for col in range(n):
+            if grid[row][col]['state'] == 2:  # If it's a star
+                # Check this row
+                if stars_per_row[row] >= 1:
+                    return False
+                stars_per_row[row] += 1
+
+                # Check this column
+                if stars_per_col[col] >= 1:
+                    return False
+                stars_per_col[col] += 1
+
+                # Check adjacent cells (including diagonals)
+                for i in range(max(0, row-1), min(n, row+2)):
+                    for j in range(max(0, col-1), min(n, col+2)):
+                        if (i != row or j != col) and grid[i][j]['state'] == 2:
+                            return False
+
+                # Check the region
+                current_region = regions[row][col]
+                if current_region in stars_per_region:
+                    if stars_per_region[current_region] >= 2:
+                        return False
+                    stars_per_region[current_region] += 1
+                else:
+                    stars_per_region[current_region] = 1
+
+    # Check if all rows, columns, and regions have exactly 1 star
+    if any(count != 1 for count in stars_per_row + stars_per_col):
+        return False
+    if any(count != 1 for count in stars_per_region.values()):
+        return False
+
+    return True
 
 
 def create_grid_from_click_grid(click_grid):
@@ -64,34 +110,22 @@ This allows to remove cross marks when a star is removed.
 click_grid = initialize_grid(len(regions))
 grid = create_grid_from_click_grid(click_grid)
 
-region_colors = {
-    'A': '#FFCDD2',
-    'B': '#BBDEFB',
-    'C': '#C8E6C9',
-    'D': '#D1C4E9',
-    'E': '#FFE0B2',
-    'F': '#FFCCBC',
-    'G': '#F0F4C3',
-    'H': '#E1BEE7',
-    'I': '#B2DFDB',
-    'J': '#FFEBEE',
-    'K': '#C5CAE9',
-    'L': '#DCEDC8',
-    'M': '#F8BBD0',
-    'N': '#D7CCC8',
-    'O': '#FFF9C4',
-    'P': '#B3E5FC',
-    'Q': '#FFAB91',
-    'R': '#F5F5F5',
-    'S': '#FFCC80',
-    'T': '#D1C4E9',
-    'U': '#B2EBF2',
-    'V': '#F0F4C3',
-    'W': '#E6EE9C',
-    'X': '#FFECB3',
-    'Y': '#B39DDB',
-    'Z': '#BCAAA4',
-}
+def generate_region_colors(n):
+    # Generate n distinct colors
+    colors = distinctipy.get_colors(n, pastel_factor=3)
+    
+    # Convert the colors to hexadecimal format
+    hex_colors = ['#{:02x}{:02x}{:02x}'.format(int(c[0]*255), int(c[1]*255), int(c[2]*255)) for c in colors]
+    
+    # Create region labels (A, B, C, ...)
+    region_labels = [chr(65 + i) for i in range(n)]
+    
+    # Create the dictionary
+    region_colors = dict(zip(region_labels, hex_colors))
+    
+    return region_colors
+
+region_colors = generate_region_colors(len(grid))
 
 start_time = time.time()  # Initialize the start time
 
@@ -111,14 +145,14 @@ def update_cell():
     cell = click_grid[row][col]
 
     if is_reverse:
-        # Reverse toggle: 2 -> 1 -> 0 -> 2
         cell['state'] = (cell['state'] - 1) % 3
     else:
-        # Normal toggle: 0 -> 1 -> 2 -> 0
         cell['state'] = (cell['state'] + 1) % 3
     
     grid = create_grid_from_click_grid(click_grid)
-    return jsonify(success=True, cell=cell, grid=grid)
+    is_valid = validate_grid(grid, regions)
+    logger.info(f"Is valid: {is_valid}")
+    return jsonify(success=True, cell=cell, grid=grid, is_valid=is_valid)
 
 
 @app.route('/reset_grid', methods=['POST'])
@@ -132,7 +166,7 @@ def reset_grid():
 
 @app.route('/load_game', methods=['POST'])
 def load_game():
-    global regions, grid, click_grid  # Ensure regions and grid are updated globally
+    global regions, grid, click_grid, region_colors  # Ensure regions and grid are updated globally
     logger.info("Loading game from clipboard image")
     n = int(request.form.get('n'))
 
@@ -142,6 +176,8 @@ def load_game():
     regions = read_grid_from_image(image, grid_size=n)
     click_grid = initialize_grid(n)
     grid = create_grid_from_click_grid(click_grid)
+
+    region_colors = generate_region_colors(len(grid))
     return jsonify(success=True, regions=regions, region_colors=region_colors)
 
 if __name__ == '__main__':

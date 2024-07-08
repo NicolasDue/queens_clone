@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Star Battle</title>
     <style>
-        body { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        body { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #000;}
         table { border-collapse: collapse; margin-bottom: 20px; }
         td { width: 30px; height: 30px; border: 1px solid #000; text-align: center; }
     </style>
@@ -27,13 +27,17 @@
         {% endfor %}
     </table>
     <button onclick="resetGrid()">Reset</button>
-    <p>Elapsed Time: <span id="timer">{{ elapsed_time }}</span> seconds</p>
+    <p style="color: aliceblue;">Elapsed Time: <span id="timer">{{ elapsed_time }}</span> seconds</p>
 
     <input type="number" id="gridSize" placeholder="Grid Size (N)">
     <button onclick="loadGame()">Load game from clipboard</button>
 
     <script>
+        let timerInterval;
+        let isGameWon = false;
+
         function updateCell(row, col, isReverse = false) {
+            if (isGameWon) return;
             fetch('/update_cell', {
                 method: 'POST',
                 headers: {
@@ -45,6 +49,10 @@
             .then(data => {
                 if (data.success) {
                     updateGrid(data.grid);
+                    if (data.is_valid) {
+                        stopTimer();
+                        showWinMessage();
+                    }
                 }
             });
         }
@@ -92,6 +100,8 @@
                             .then(data => {
                                 if (data.success) {
                                     updateTable(data.regions, data.region_colors, n);
+                                    resetGameState();
+                                    resetGrid();
                                 }
                             });
                         });
@@ -120,17 +130,42 @@
                 }
             }
         }
-    
-        function updateTimer() {
+
+        function startTimer() {
             const timerElement = document.getElementById('timer');
             let elapsedTime = parseInt(timerElement.textContent);
-            setInterval(() => {
+            timerInterval = setInterval(() => {
                 elapsedTime++;
                 timerElement.textContent = elapsedTime;
             }, 1000);
         }
+
+        function stopTimer() {
+            clearInterval(timerInterval);
+        }
+
+        function showWinMessage() {
+            isGameWon = true;
+            const messageElement = document.createElement('p');
+            messageElement.textContent = "You won!";
+            messageElement.style.color = "green";
+            messageElement.style.fontWeight = "bold";
+            messageElement.style.border = "2px solid green";
+            messageElement.style.padding = "5px";
+            document.body.appendChild(messageElement);
+        }
+
+        function resetGameState() {
+            isGameWon = false;
+            stopTimer();
+            startTimer();
+            const winMessage = document.querySelector('p:not(#timer)');
+            if (winMessage) {
+                winMessage.remove();
+            }
+        }
     
-        updateTimer();
+        startTimer();
         document.addEventListener('contextmenu', event => event.preventDefault());
     </script>     
 </body>

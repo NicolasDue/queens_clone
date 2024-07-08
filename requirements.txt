@@ -3,3 +3,4 @@ loguru
 requests
 pillow
 numpy
+distinctipy
